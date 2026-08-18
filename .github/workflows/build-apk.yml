@@ -12,53 +12,55 @@ jobs:
 
     steps:
 
-      # =========================
-      # 1. Checkout
-      # =========================
+      # ========================================
+      # 1. تحميل المستودع
+      # ========================================
       - name: Checkout
         uses: actions/checkout@v4
 
 
-      # =========================
-      # 2. Setup Node
-      # =========================
+      # ========================================
+      # 2. إعداد Node
+      # ========================================
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
           node-version: "22"
 
 
-      # =========================
-      # 3. Setup Bun
-      # =========================
+      # ========================================
+      # 3. إعداد Bun
+      # ========================================
       - name: Setup Bun
         uses: oven-sh/setup-bun@v2
         with:
           bun-version: latest
 
 
-      # =========================
-      # 4. Extract ZIP
-      # =========================
+      # ========================================
+      # 4. البحث عن ZIP وفك المشروع
+      # ========================================
       - name: Extract project ZIP
         shell: bash
         run: |
           set -e
 
+          echo "======================================"
           echo "Searching for ZIP..."
+          echo "======================================"
 
           ZIP_FILE=$(find . -maxdepth 1 -type f -iname "*.zip" | head -n 1)
 
           if [ -z "$ZIP_FILE" ]; then
-            echo "ERROR: ZIP file not found"
+            echo "ERROR: ZIP file not found."
             exit 1
           fi
 
-          echo "Found:"
+          echo "Found ZIP:"
           echo "$ZIP_FILE"
 
           rm -rf extracted
-          mkdir extracted
+          mkdir -p extracted
 
           unzip -q "$ZIP_FILE" -d extracted
 
@@ -67,64 +69,214 @@ jobs:
           find extracted -maxdepth 3 -type f | head -200
 
 
-      # =========================
-      # 5. Find package.json
-      # =========================
+      # ========================================
+      # 5. البحث عن package.json
+      # ========================================
       - name: Find Web Project
         shell: bash
         run: |
           set -e
 
+          echo "======================================"
           echo "Searching for package.json..."
+          echo "======================================"
 
           PACKAGE=$(find extracted -type f -name "package.json" | head -n 1)
 
           if [ -z "$PACKAGE" ]; then
-            echo "ERROR: package.json not found"
+            echo "ERROR: package.json was not found."
+            echo ""
+            echo "Available files:"
+            find extracted -maxdepth 4 -type f | head -300
             exit 1
           fi
 
           PROJECT_DIR=$(dirname "$PACKAGE")
 
-          echo "================================"
-          echo "Web Project Found"
-          echo "================================"
-          echo "$PROJECT_DIR"
-
-          echo "PROJECT_DIR=$PROJECT_DIR" >> "$GITHUB_ENV"
-
-
-      # =========================
-      # 6. Show package.json
-      # =========================
-      - name: Check package
-        shell: bash
-        run: |
-          echo "Project:"
+          echo ""
+          echo "======================================"
+          echo "WEB PROJECT FOUND"
+          echo "======================================"
           echo "$PROJECT_DIR"
 
           echo ""
           echo "package.json:"
           cat "$PROJECT_DIR/package.json"
 
+          echo "PROJECT_DIR=$PROJECT_DIR" >> "$GITHUB_ENV"
 
-      # =========================
-      # 7. Install dependencies
-      # =========================
+
+      # ========================================
+      # 6. تثبيت Dependencies
+      # ========================================
       - name: Install dependencies
         working-directory: ${{ env.PROJECT_DIR }}
+        shell: bash
         run: |
+          set -e
+
+          echo "======================================"
+          echo "Installing dependencies..."
+          echo "======================================"
+
           bun install --frozen-lockfile
 
 
-      # =========================
-      # 8. Build Web
-      # =========================
+      # ========================================
+      # 7. بناء مشروع Web
+      # ========================================
       - name: Build Web App
         working-directory: ${{ env.PROJECT_DIR }}
+        shell: bash
         run: |
+          set -e
+
+          echo "======================================"
+          echo "Building Web App..."
+          echo "======================================"
+
           bun run build
 
+          echo ""
+          echo "Build completed."
+
+          if [ ! -d "dist" ]; then
+            echo "ERROR: dist directory was not created."
+            exit 1
+          fi
+
+          echo ""
+          echo "Dist contents:"
+          find dist -maxdepth 2 -type f | head -100
+
+
+      # ========================================
+      # 8. تثبيت Capacitor
+      # ========================================
+      - name: Install Capacitor
+        working-directory: ${{ env.PROJECT_DIR }}
+        shell: bash
+        run: |
+          set -e
+
+          echo "======================================"
+          echo "Installing Capacitor..."
+          echo "======================================"
+
+          bun add @capacitor/core @capacitor/android
+          bun add -d @capacitor/cli
+
+
+      # ========================================
+      # 9. إنشاء capacitor.config.ts
+      # ========================================
+      - name: Create Capacitor config
+        working-directory: ${{ env.PROJECT_DIR }}
+        shell: bash
+        run: |
+          cat > capacitor.config.ts <<'EOF'
+          import type { CapacitorConfig } from '@capacitor/cli';
+
+          const config: CapacitorConfig = {
+            appId: 'com.example.crimsonai',
+            appName: 'Crimson AI',
+            webDir: 'dist',
+            bundledWebRuntime: false
+          };
+
+          export default config;
+          EOF
+
+          echo "Capacitor config:"
+          cat capacitor.config.ts
+
+
+      # ========================================
+      # 10. إنشاء مشروع Android
+      # ========================================
+      - name: Add Android platform
+        working-directory: ${{ env.PROJECT_DIR }}
+        shell: bash
+        run: |
+          set -e
+
+          echo "======================================"
+          echo "Adding Android platform..."
+          echo "======================================"
+
+          npx cap add android
+
+
+      # ========================================
+      # 11. نسخ ملفات Web إلى Android
+      # ========================================
+      - name: Copy Web Files
+        working-directory: ${{ env.PROJECT_DIR }}
+        shell: bash
+        run: |
+          set -e
+
+          echo "======================================"
+          echo "Copying Web files to Android..."
+          echo "======================================"
+
+          npx cap copy android
+
+
+      # ========================================
+      # 12. إعداد Java 21
+      # ========================================
+      - name: Setup Java 21
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "21"
+
+
+      # ========================================
+      # 13. التحقق من Java
+      # ========================================
+      - name: Check Java
+        shell: bash
+        run: |
+          echo "======================================"
+          echo "JAVA VERSION"
+          echo "======================================"
+
+          java -version
+
+          echo ""
+          echo "JAVA_HOME:"
+          echo "$JAVA_HOME"
+
+
+      # ========================================
+      # 14. التحقق من Android project
+      # ========================================
+      - name: Check Android Project
+        working-directory: ${{ env.PROJECT_DIR }}/android
+        shell: bash
+        run: |
+          echo "======================================"
+          echo "ANDROID PROJECT"
+          echo "======================================"
+
+          ls -la
+
+          echo ""
+          echo "Gradle wrapper:"
+          ls -la gradlew
+
+          echo ""
+          echo "Gradle version:"
+          ./gradlew --version
+
+
+      # ========================================
+      # 15. بناء APK
+      # ========================================
+      - name: Build Debug APK
+       
 
       # =========================
       # 9. Install Capacitor
