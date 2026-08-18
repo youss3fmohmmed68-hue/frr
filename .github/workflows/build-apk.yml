@@ -11,224 +11,59 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-
-      - name: Checkout repository
+      - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
 
-      - name: Show repository
+      - name: Install dependencies
+        run: npm install
+
+      - name: Build Web App
+        run: npm run build
+
+      - name: Install Capacitor
         run: |
-          echo "========== REPOSITORY =========="
-          pwd
-          echo ""
-          find . -maxdepth 5 -print
-          echo "================================"
+          npm install @capacitor/core @capacitor/cli @capacitor/android
 
-
-      - name: Find ZIP
-        shell: bash
+      - name: Initialize Capacitor
         run: |
-          set -e
-
-          ZIP_FILE=$(find . \
-            -type f \
-            -iname "*.zip" \
-            -not -path "./.git/*" \
-            | head -n 1)
-
-          if [ -z "$ZIP_FILE" ]; then
-            echo "ERROR: ZIP file not found."
-            exit 1
+          if [ ! -f capacitor.config.json ] && [ ! -f capacitor.config.ts ]; then
+            npx cap init "My App" "com.example.myapp" --web-dir dist
           fi
 
-          echo "ZIP FOUND:"
-          echo "$ZIP_FILE"
-
-          echo "ZIP_FILE=$ZIP_FILE" >> "$GITHUB_ENV"
-
-
-      - name: Extract ZIP
-        shell: bash
+      - name: Add Android
         run: |
-          set -e
-
-          rm -rf project
-          mkdir project
-
-          echo "========== ZIP CONTENT =========="
-
-          unzip -l "$ZIP_FILE"
-
-          echo "================================="
-
-          unzip -q "$ZIP_FILE" -d project
-
-          echo ""
-          echo "========== EXTRACTED PROJECT =========="
-
-          find project -type f -print | sort
-
-          echo "======================================="
-
-
-      - name: Locate Android project
-        shell: bash
-        run: |
-          set -e
-
-          echo "Searching for Android Gradle project..."
-
-          SETTINGS=$(find project \
-            -type f \
-            \( \
-              -name "settings.gradle" \
-              -o \
-              -name "settings.gradle.kts" \
-            \) \
-            | head -n 1)
-
-          if [ -z "$SETTINGS" ]; then
-
-            echo ""
-            echo "======================================"
-            echo "NO GRADLE PROJECT FOUND"
-            echo "======================================"
-
-            echo ""
-            echo "All extracted files:"
-
-            find project -type f -print | sort
-
-            echo ""
-            echo "Directories:"
-
-            find project -type d -print | sort
-
-            echo ""
-            echo "======================================"
-
-            exit 1
+          if [ ! -d android ]; then
+            npx cap add android
           fi
 
-          PROJECT_DIR=$(dirname "$SETTINGS")
+      - name: Sync Android
+        run: npx cap sync android
 
-          echo ""
-          echo "======================================"
-          echo "ANDROID PROJECT FOUND"
-          echo "======================================"
-
-          echo "Settings:"
-          echo "$SETTINGS"
-
-          echo ""
-          echo "Project root:"
-          echo "$PROJECT_DIR"
-
-          echo "PROJECT_DIR=$PROJECT_DIR" >> "$GITHUB_ENV"
-
-
-      - name: Setup Java 17
+      - name: Setup Java
         uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: "17"
 
-
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v4
-        with:
-          gradle-version: "9.3.1"
-
-
-      - name: Create debug keystore
-        shell: bash
-        run: |
-          set -e
-
-          KEYSTORE="$PROJECT_DIR/debug.keystore"
-
-          echo "Creating:"
-          echo "$KEYSTORE"
-
-          if [ ! -f "$KEYSTORE" ]; then
-
-            keytool -genkeypair \
-              -v \
-              -keystore "$KEYSTORE" \
-              -alias androiddebugkey \
-              -keyalg RSA \
-              -keysize 2048 \
-              -validity 10000 \
-              -storepass android \
-              -keypass android \
-              -dname "CN=Android Debug,O=Android,C=US"
-
-          fi
-
-          ls -lh "$KEYSTORE"
-
 
       - name: Build APK
-        shell: bash
-        working-directory: ${{ env.PROJECT_DIR }}
+        working-directory: android
         run: |
-          set -e
-
-          echo "======================================"
-          echo "BUILDING APK"
-          echo "======================================"
-
-          pwd
-
-          echo ""
-          echo "Files:"
-          ls -la
-
-          echo ""
-          echo "Gradle:"
-          gradle --version
-
-          echo ""
-          echo "Running assembleDebug..."
-
-          gradle assembleDebug \
-            --no-daemon \
-            --stacktrace
-
-          echo ""
-          echo "BUILD SUCCESSFUL"
-
-
-      - name: Find APK
-        shell: bash
-        run: |
-          set -e
-
-          echo "======================================"
-          echo "APK FILES"
-          echo "======================================"
-
-          find "$PROJECT_DIR" \
-            -type f \
-            -name "*.apk" \
-            -print
-
-          COUNT=$(find "$PROJECT_DIR" \
-            -type f \
-            -name "*.apk" \
-            | wc -l)
-
-          if [ "$COUNT" -eq 0 ]; then
-            echo "ERROR: No APK generated."
-            exit 1
-          fi
-
+          chmod +x gradlew
+          ./gradlew assembleDebug --no-daemon --stacktrace
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
           name: app-debug
-          path: |
-            ${{ env.PROJECT_DIR }}/**/*.apk
+          path: android/app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
           retention-days: 7
