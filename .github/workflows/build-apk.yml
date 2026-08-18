@@ -11,61 +11,143 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      # 1 - تحميل المشروع
+
+      # =========================
+      # 1. Checkout
+      # =========================
       - name: Checkout
         uses: actions/checkout@v4
 
-      # 2 - التأكد من مكان مشروع React
-      - name: Check project
-        run: |
-          echo "Project files:"
-          ls -la
-          echo "Inside project:"
-          ls -la project
-          echo "Package:"
-          cat project/package.json
 
-      # 3 - Node
+      # =========================
+      # 2. Setup Node
+      # =========================
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
           node-version: "22"
 
-      # 4 - تثبيت Bun
+
+      # =========================
+      # 3. Setup Bun
+      # =========================
       - name: Setup Bun
         uses: oven-sh/setup-bun@v2
         with:
           bun-version: latest
 
-      # 5 - تثبيت Dependencies
+
+      # =========================
+      # 4. Extract ZIP
+      # =========================
+      - name: Extract project ZIP
+        shell: bash
+        run: |
+          set -e
+
+          echo "Searching for ZIP..."
+
+          ZIP_FILE=$(find . -maxdepth 1 -type f -iname "*.zip" | head -n 1)
+
+          if [ -z "$ZIP_FILE" ]; then
+            echo "ERROR: ZIP file not found"
+            exit 1
+          fi
+
+          echo "Found:"
+          echo "$ZIP_FILE"
+
+          rm -rf extracted
+          mkdir extracted
+
+          unzip -q "$ZIP_FILE" -d extracted
+
+          echo ""
+          echo "Extracted files:"
+          find extracted -maxdepth 3 -type f | head -200
+
+
+      # =========================
+      # 5. Find package.json
+      # =========================
+      - name: Find Web Project
+        shell: bash
+        run: |
+          set -e
+
+          echo "Searching for package.json..."
+
+          PACKAGE=$(find extracted -type f -name "package.json" | head -n 1)
+
+          if [ -z "$PACKAGE" ]; then
+            echo "ERROR: package.json not found"
+            exit 1
+          fi
+
+          PROJECT_DIR=$(dirname "$PACKAGE")
+
+          echo "================================"
+          echo "Web Project Found"
+          echo "================================"
+          echo "$PROJECT_DIR"
+
+          echo "PROJECT_DIR=$PROJECT_DIR" >> "$GITHUB_ENV"
+
+
+      # =========================
+      # 6. Show package.json
+      # =========================
+      - name: Check package
+        shell: bash
+        run: |
+          echo "Project:"
+          echo "$PROJECT_DIR"
+
+          echo ""
+          echo "package.json:"
+          cat "$PROJECT_DIR/package.json"
+
+
+      # =========================
+      # 7. Install dependencies
+      # =========================
       - name: Install dependencies
-        working-directory: project
+        working-directory: ${{ env.PROJECT_DIR }}
         run: |
           bun install --frozen-lockfile
 
-      # 6 - بناء React
+
+      # =========================
+      # 8. Build Web
+      # =========================
       - name: Build Web App
-        working-directory: project
+        working-directory: ${{ env.PROJECT_DIR }}
         run: |
           bun run build
 
-      # 7 - تثبيت Capacitor
+
+      # =========================
+      # 9. Install Capacitor
+      # =========================
       - name: Install Capacitor
-        working-directory: project
+        working-directory: ${{ env.PROJECT_DIR }}
         run: |
           bun add @capacitor/core @capacitor/android
           bun add -d @capacitor/cli
 
-      # 8 - إنشاء Capacitor Config
+
+      # =========================
+      # 10. Create Capacitor Config
+      # =========================
       - name: Create Capacitor config
-        working-directory: project
+        working-directory: ${{ env.PROJECT_DIR }}
         run: |
           cat > capacitor.config.ts <<'EOF'
           import type { CapacitorConfig } from '@capacitor/cli';
 
           const config: CapacitorConfig = {
-            appId: 'com.example.designai',
-            appName: 'Design AI',
+            appId: 'com.example.crimsonai',
+            appName: 'Crimson AI',
             webDir: 'dist',
             bundledWebRuntime: false
           };
@@ -73,31 +155,70 @@ jobs:
           export default config;
           EOF
 
-      # 9 - إنشاء Android
-      - name: Add Android platform
-        working-directory: project
+
+      # =========================
+      # 11. Add Android
+      # =========================
+      - name: Add Android
+        working-directory: ${{ env.PROJECT_DIR }}
         run: |
           npx cap add android
 
-      # 10 - نسخ ملفات React إلى Android
-      - name: Copy web files
-        working-directory: project
+
+      # =========================
+      # 12. Copy Web to Android
+      # =========================
+      - name: Copy Web Files
+        working-directory: ${{ env.PROJECT_DIR }}
         run: |
           npx cap copy android
 
-      # 11 - إعداد Java
+
+      # =========================
+      # 13. Java 17
+      # =========================
       - name: Setup Java
         uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: "17"
 
-      # 12 - Build APK
+
+      # =========================
+      # 14. Build APK
+      # =========================
       - name: Build Debug APK
-        working-directory: project/android
+        working-directory: ${{ env.PROJECT_DIR }}/android
         run: |
           chmod +x gradlew
           ./gradlew assembleDebug --no-daemon --stacktrace
+
+
+      # =========================
+      # 15. Find APK
+      # =========================
+      - name: Find APK
+        shell: bash
+        run: |
+          echo "================================"
+          echo "GENERATED APK"
+          echo "================================"
+
+          find "$PROJECT_DIR/android" \
+            -type f \
+            -name "*.apk" \
+            -print
+
+
+      # =========================
+      # 16. Upload APK
+      # =========================
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: app-debug
+          path: ${{ env.PROJECT_DIR }}/android/app/build/outputs/apk/debug/*.apk
+          if-no-files-found: error          ./gradlew assembleDebug --no-daemon --stacktrace
 
       # 13 - البحث عن APK
       - name: Find APK
