@@ -11,39 +11,26 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout
+      - name: Checkout repository
         uses: actions/checkout@v4
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 22
-          cache: npm
+          node-version: "22"
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: "latest"
 
       - name: Install dependencies
-        run: npm install
+        run: |
+          bun install --frozen-lockfile
 
       - name: Build Web App
-        run: npm run build
-
-      - name: Install Capacitor
         run: |
-          npm install @capacitor/core @capacitor/cli @capacitor/android
-
-      - name: Initialize Capacitor
-        run: |
-          if [ ! -f capacitor.config.json ] && [ ! -f capacitor.config.ts ]; then
-            npx cap init "My App" "com.example.myapp" --web-dir dist
-          fi
-
-      - name: Add Android
-        run: |
-          if [ ! -d android ]; then
-            npx cap add android
-          fi
-
-      - name: Sync Android
-        run: npx cap sync android
+          bun run build
 
       - name: Setup Java
         uses: actions/setup-java@v5
@@ -51,8 +38,25 @@ jobs:
           distribution: temurin
           java-version: "17"
 
-      - name: Setup Gradle
-        uses: gradle/actions/setup-gradle@v4
+      - name: Install Capacitor
+        run: |
+          bun add @capacitor/core @capacitor/cli @capacitor/android
+
+      - name: Initialize Capacitor
+        run: |
+          if [ ! -f capacitor.config.ts ] && [ ! -f capacitor.config.json ]; then
+            bunx cap init "Frr" "com.example.frr" --web-dir dist
+          fi
+
+      - name: Add Android platform
+        run: |
+          if [ ! -d android ]; then
+            bunx cap add android
+          fi
+
+      - name: Sync Capacitor
+        run: |
+          bunx cap sync android
 
       - name: Build APK
         working-directory: android
@@ -60,10 +64,17 @@ jobs:
           chmod +x gradlew
           ./gradlew assembleDebug --no-daemon --stacktrace
 
+      - name: Find APK
+        run: |
+          echo "======================================"
+          echo "APK FILES"
+          echo "======================================"
+
+          find android -type f -name "*.apk" -print
+
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
           name: app-debug
-          path: android/app/build/outputs/apk/debug/app-debug.apk
+          path: android/app/build/outputs/apk/debug/*.apk
           if-no-files-found: error
-          retention-days: 7
