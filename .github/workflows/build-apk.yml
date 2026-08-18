@@ -11,70 +11,110 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout repository
+      # 1 - تحميل المشروع
+      - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Setup Node.js
+      # 2 - التأكد من مكان مشروع React
+      - name: Check project
+        run: |
+          echo "Project files:"
+          ls -la
+          echo "Inside project:"
+          ls -la project
+          echo "Package:"
+          cat project/package.json
+
+      # 3 - Node
+      - name: Setup Node
         uses: actions/setup-node@v4
         with:
           node-version: "22"
 
+      # 4 - تثبيت Bun
       - name: Setup Bun
         uses: oven-sh/setup-bun@v2
         with:
-          bun-version: "latest"
+          bun-version: latest
 
+      # 5 - تثبيت Dependencies
       - name: Install dependencies
+        working-directory: project
         run: |
           bun install --frozen-lockfile
 
+      # 6 - بناء React
       - name: Build Web App
+        working-directory: project
         run: |
           bun run build
 
+      # 7 - تثبيت Capacitor
+      - name: Install Capacitor
+        working-directory: project
+        run: |
+          bun add @capacitor/core @capacitor/android
+          bun add -d @capacitor/cli
+
+      # 8 - إنشاء Capacitor Config
+      - name: Create Capacitor config
+        working-directory: project
+        run: |
+          cat > capacitor.config.ts <<'EOF'
+          import type { CapacitorConfig } from '@capacitor/cli';
+
+          const config: CapacitorConfig = {
+            appId: 'com.example.designai',
+            appName: 'Design AI',
+            webDir: 'dist',
+            bundledWebRuntime: false
+          };
+
+          export default config;
+          EOF
+
+      # 9 - إنشاء Android
+      - name: Add Android platform
+        working-directory: project
+        run: |
+          npx cap add android
+
+      # 10 - نسخ ملفات React إلى Android
+      - name: Copy web files
+        working-directory: project
+        run: |
+          npx cap copy android
+
+      # 11 - إعداد Java
       - name: Setup Java
         uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: "17"
 
-      - name: Install Capacitor
-        run: |
-          bun add @capacitor/core @capacitor/cli @capacitor/android
-
-      - name: Initialize Capacitor
-        run: |
-          if [ ! -f capacitor.config.ts ] && [ ! -f capacitor.config.json ]; then
-            bunx cap init "Frr" "com.example.frr" --web-dir dist
-          fi
-
-      - name: Add Android platform
-        run: |
-          if [ ! -d android ]; then
-            bunx cap add android
-          fi
-
-      - name: Sync Capacitor
-        run: |
-          bunx cap sync android
-
-      - name: Build APK
-        working-directory: android
+      # 12 - Build APK
+      - name: Build Debug APK
+        working-directory: project/android
         run: |
           chmod +x gradlew
           ./gradlew assembleDebug --no-daemon --stacktrace
 
+      # 13 - البحث عن APK
       - name: Find APK
         run: |
-          echo "======================================"
+          echo "=============================="
           echo "APK FILES"
-          echo "======================================"
+          echo "=============================="
 
-          find android -type f -name "*.apk" -print
+          find project/android \
+            -type f \
+            -name "*.apk" \
+            -print
 
+      # 14 - رفع APK
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
           name: app-debug
-          path: android/app/build/outputs/apk/debug/*.apk
+          path: project/android/app/build/outputs/apk/debug/*.apk
           if-no-files-found: error
